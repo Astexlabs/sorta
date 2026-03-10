@@ -9,6 +9,8 @@
  */
 
 import type * as emails from "../emails.js";
+import type * as seed from "../seed.js";
+import type * as tasks from "../tasks.js";
 import type * as users from "../users.js";
 
 import type {
@@ -19,6 +21,8 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   emails: typeof emails;
+  seed: typeof seed;
+  tasks: typeof tasks;
   users: typeof users;
 }>;
 

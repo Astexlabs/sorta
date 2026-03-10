@@ -1,5 +1,5 @@
 import { useAuth } from '@clerk/clerk-expo';
-import { Home01Icon, Settings01Icon } from '@hugeicons/core-free-icons';
+import { Home01Icon, RankingIcon, Settings01Icon, UserAccountIcon } from '@hugeicons/core-free-icons';
 import { Redirect, Tabs } from 'expo-router';
 import { ActivityIndicator, View } from 'react-native';
 
@@ -44,6 +44,20 @@ export default function TabLayout() {
         options={{
           title: 'Home',
           tabBarIcon: ({ color }) => <Icon icon={Home01Icon} size={24} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="leaderboard"
+        options={{
+          title: 'Ranks',
+          tabBarIcon: ({ color }) => <Icon icon={RankingIcon} size={24} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Profile',
+          tabBarIcon: ({ color }) => <Icon icon={UserAccountIcon} size={24} color={color} />,
         }}
       />
       <Tabs.Screen
