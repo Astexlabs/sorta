@@ -1,11 +1,34 @@
 import { useMutation, useQuery } from 'convex/react';
 import { router } from 'expo-router';
 import { useEffect } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { api } from '@/convex/_generated/api';
 import { useAppStore } from '@/store/useAppStore';
+
+const BG = '#0a0a0a';
+const SURFACE = '#111111';
+const BORDER = '#1f1f1f';
+const ACCENT = '#6366f1';
+const ACCENT2 = '#a78bfa';
+const TEXT = '#f5f5f5';
+const MUTED = '#555558';
+
+function StatCard({ label, value, color, icon }: { label: string; value: string | number; color: string; icon: string }) {
+  return (
+    <View style={{
+      flex: 1, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER,
+      borderRadius: 16, padding: 16,
+    }}>
+      <Text style={{ fontSize: 20, marginBottom: 8 }}>{icon}</Text>
+      <Text style={{ color: MUTED, fontSize: 10, fontWeight: '600', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 4 }}>
+        {label}
+      </Text>
+      <Text style={{ color, fontSize: 22, fontWeight: '700' }}>{value}</Text>
+    </View>
+  );
+}
 
 export default function HomeScreen() {
   const currentUser = useQuery(api.users.getCurrentUser);
@@ -14,125 +37,120 @@ export default function HomeScreen() {
   const tasks = useQuery(api.tasks.getPendingTasks);
   const { syncFromServer } = useAppStore();
 
+  useEffect(() => { getOrCreateUser(); }, []);
   useEffect(() => {
-    getOrCreateUser();
-  }, []);
-
-  useEffect(() => {
-    if (currentUser) {
-      syncFromServer(currentUser.total_xp, currentUser.current_streak);
-    }
+    if (currentUser) syncFromServer(currentUser.total_xp, currentUser.current_streak);
   }, [currentUser]);
 
-  const availableTasks = tasks?.length ?? 0;
   const xp = currentUser?.total_xp ?? 0;
   const streak = currentUser?.current_streak ?? 0;
-
-  // XP level thresholds (100 XP per level)
+  const accuracy = currentUser?.accuracy_score ?? 100;
   const level = Math.floor(xp / 100) + 1;
   const xpIntoLevel = xp % 100;
-  const xpProgress = xpIntoLevel / 100;
+  const availableTasks = tasks?.length ?? 0;
 
   return (
-    <SafeAreaView className="flex-1 bg-white dark:bg-neutral-950">
-      <View className="flex-1 px-6 pt-8">
+    <SafeAreaView style={{ flex: 1, backgroundColor: BG }}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32 }}>
         {/* Header */}
-        <View className="mb-8">
-          <Text className="font-sans text-sm text-neutral-500 dark:text-neutral-400">
-            Welcome back
-          </Text>
-          <Text className="font-bold text-2xl text-neutral-900 dark:text-white">
+        <View style={{ paddingHorizontal: 24, paddingTop: 20, paddingBottom: 12 }}>
+          <Text style={{ color: MUTED, fontSize: 13, marginBottom: 2 }}>Good to see you</Text>
+          <Text style={{ color: TEXT, fontSize: 26, fontWeight: '700' }}>
             {currentUser?.name ?? 'Annotator'}
           </Text>
         </View>
 
-        {/* Stats row */}
-        <View className="mb-6 flex-row gap-3">
-          <View className="flex-1 rounded-2xl bg-blue-50 p-4 dark:bg-blue-900/20">
-            <Text className="text-blue-600 dark:text-blue-400 font-semibold text-xs uppercase tracking-wide mb-1">
-              Total XP
-            </Text>
-            <Text className="font-bold text-2xl text-blue-700 dark:text-blue-300">{xp}</Text>
-          </View>
-          <View className="flex-1 rounded-2xl bg-orange-50 p-4 dark:bg-orange-900/20">
-            <Text className="text-orange-600 dark:text-orange-400 font-semibold text-xs uppercase tracking-wide mb-1">
-              Streak
-            </Text>
-            <Text className="font-bold text-2xl text-orange-700 dark:text-orange-300">
-              🔥 {streak}
+        {/* Level + XP bar */}
+        <View style={{ marginHorizontal: 24, marginBottom: 20, backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, borderRadius: 16, padding: 18 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14 }}>
+            <View>
+              <Text style={{ color: MUTED, fontSize: 10, fontWeight: '600', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 4 }}>
+                Level
+              </Text>
+              <Text style={{ color: ACCENT2, fontSize: 32, fontWeight: '800' }}>{level}</Text>
+            </View>
+            <Text style={{ color: MUTED, fontSize: 12 }}>
+              {xpIntoLevel} <Text style={{ color: TEXT }}>/ 100 XP</Text>
             </Text>
           </View>
-          <View className="flex-1 rounded-2xl bg-purple-50 p-4 dark:bg-purple-900/20">
-            <Text className="text-purple-600 dark:text-purple-400 font-semibold text-xs uppercase tracking-wide mb-1">
-              Level
-            </Text>
-            <Text className="font-bold text-2xl text-purple-700 dark:text-purple-300">
-              {level}
-            </Text>
+          <View style={{ height: 4, backgroundColor: BORDER, borderRadius: 4 }}>
+            <View style={{ height: 4, width: `${xpIntoLevel}%`, backgroundColor: ACCENT, borderRadius: 4 }} />
           </View>
-        </View>
-
-        {/* XP progress bar */}
-        <View className="mb-6">
-          <View className="flex-row justify-between mb-1">
-            <Text className="text-xs text-neutral-500 dark:text-neutral-400">
-              Level {level}
-            </Text>
-            <Text className="text-xs text-neutral-500 dark:text-neutral-400">
-              {xpIntoLevel} / 100 XP
-            </Text>
-          </View>
-          <View className="h-2 rounded-full bg-neutral-200 dark:bg-neutral-700">
-            <View
-              className="h-2 rounded-full bg-blue-600"
-              style={{ width: `${xpProgress * 100}%` }}
-            />
-          </View>
-        </View>
-
-        {/* Start Annotating CTA */}
-        <Pressable
-          onPress={() => router.push('/(tabs)/arena')}
-          disabled={availableTasks === 0}
-          className="mb-6 rounded-2xl bg-blue-600 py-5 items-center active:bg-blue-700 disabled:opacity-40"
-        >
-          <Text className="font-bold text-white text-lg">
-            {availableTasks > 0 ? `Start Annotating (${availableTasks} tasks)` : 'No tasks available'}
+          <Text style={{ color: MUTED, fontSize: 11, marginTop: 6 }}>
+            {100 - xpIntoLevel} XP to level {level + 1}
           </Text>
-          {availableTasks > 0 && (
-            <Text className="text-blue-200 text-sm mt-1">Earn XP for every annotation</Text>
-          )}
-        </Pressable>
-
-        {/* Mini leaderboard */}
-        <View className="rounded-2xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
-          <View className="px-4 py-3 border-b border-neutral-100 dark:border-neutral-800">
-            <Text className="font-semibold text-neutral-900 dark:text-white">Leaderboard</Text>
-          </View>
-          {leaderboard === undefined ? (
-            <View className="p-4">
-              <Text className="text-neutral-400 text-sm">Loading...</Text>
-            </View>
-          ) : leaderboard.length === 0 ? (
-            <View className="p-4">
-              <Text className="text-neutral-400 text-sm">No rankings yet. Be the first!</Text>
-            </View>
-          ) : (
-            leaderboard.slice(0, 5).map((entry) => (
-              <View
-                key={entry.rank}
-                className="flex-row items-center px-4 py-3 border-b border-neutral-50 dark:border-neutral-900"
-              >
-                <Text className="w-8 font-bold text-neutral-400 text-sm">#{entry.rank}</Text>
-                <Text className="flex-1 font-medium text-neutral-800 dark:text-neutral-200">
-                  {entry.name}
-                </Text>
-                <Text className="font-semibold text-blue-600 text-sm">{entry.total_xp} XP</Text>
-              </View>
-            ))
-          )}
         </View>
-      </View>
+
+        {/* Stats row */}
+        <View style={{ flexDirection: 'row', gap: 10, marginHorizontal: 24, marginBottom: 20 }}>
+          <StatCard label="Total XP" value={xp} color={ACCENT2} icon="⚡" />
+          <StatCard label="Streak" value={`${streak}d`} color="#f97316" icon="🔥" />
+          <StatCard label="Accuracy" value={`${accuracy}%`} color="#34d399" icon="🎯" />
+        </View>
+
+        {/* CTA */}
+        <View style={{ marginHorizontal: 24, marginBottom: 24 }}>
+          <Pressable
+            onPress={() => router.push('/(tabs)/arena')}
+            disabled={availableTasks === 0}
+            style={({ pressed }) => ({
+              backgroundColor: availableTasks > 0 ? ACCENT : '#1a1a1a',
+              borderRadius: 16, paddingVertical: 18, alignItems: 'center',
+              opacity: pressed ? 0.88 : 1,
+              borderWidth: availableTasks === 0 ? 1 : 0,
+              borderColor: BORDER,
+            })}
+          >
+            <Text style={{ color: availableTasks > 0 ? 'white' : MUTED, fontWeight: '700', fontSize: 16 }}>
+              {availableTasks > 0 ? 'Start annotating' : 'No tasks right now'}
+            </Text>
+            {availableTasks > 0 && (
+              <Text style={{ color: `${ACCENT2}cc`, fontSize: 12, marginTop: 3 }}>
+                {availableTasks} task{availableTasks !== 1 ? 's' : ''} available
+              </Text>
+            )}
+          </Pressable>
+        </View>
+
+        {/* Leaderboard */}
+        <View style={{ marginHorizontal: 24 }}>
+          <Text style={{ color: TEXT, fontSize: 16, fontWeight: '600', marginBottom: 12 }}>Leaderboard</Text>
+          <View style={{ backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, borderRadius: 16, overflow: 'hidden' }}>
+            {leaderboard === undefined ? (
+              <View style={{ padding: 20 }}>
+                <Text style={{ color: MUTED, fontSize: 13 }}>Loading…</Text>
+              </View>
+            ) : leaderboard.length === 0 ? (
+              <View style={{ padding: 20 }}>
+                <Text style={{ color: MUTED, fontSize: 13 }}>No rankings yet. Be first!</Text>
+              </View>
+            ) : (
+              leaderboard.slice(0, 5).map((entry, i) => (
+                <View
+                  key={entry.rank}
+                  style={{
+                    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14,
+                    borderBottomWidth: i < 4 ? 1 : 0, borderColor: BORDER,
+                  }}
+                >
+                  <Text style={{
+                    color: entry.rank <= 3 ? ['#f59e0b', '#94a3b8', '#b45309'][entry.rank - 1] : MUTED,
+                    fontWeight: '700', fontSize: 12, width: 28,
+                  }}>
+                    #{entry.rank}
+                  </Text>
+                  <Text style={{ color: TEXT, fontWeight: '500', fontSize: 14, flex: 1 }}>
+                    {entry.name}
+                  </Text>
+                  <Text style={{ color: ACCENT2, fontWeight: '600', fontSize: 13 }}>
+                    {entry.total_xp} XP
+                  </Text>
+                </View>
+              ))
+            )}
+          </View>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }

@@ -1,13 +1,58 @@
 import { useSignUp, useUser } from '@clerk/clerk-expo';
 import { Link, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { getAuthErrorMessage } from '@/lib/auth-errors';
 import { isPasskeySupported } from '@/lib/passkeys';
 
-type SignUpPhase = 'register' | 'custom-fields' | 'verify' | 'passkey-prompt';
+const BG = '#0a0a0a';
+const SURFACE = '#111111';
+const BORDER = '#1f1f1f';
+const ACCENT = '#6366f1';
+const TEXT = '#f5f5f5';
+const MUTED = '#555558';
+const ERROR_BG = '#1f0d0d';
+const ERROR_TEXT = '#f87171';
+
+type Phase = 'register' | 'custom-fields' | 'verify' | 'passkey-prompt';
+
+function StyledInput({ value, onChange, placeholder, secureTextEntry, keyboardType, autoComplete, autoCapitalize, large }: {
+  value: string; onChange: (v: string) => void; placeholder: string;
+  secureTextEntry?: boolean; keyboardType?: any; autoComplete?: any; autoCapitalize?: any; large?: boolean;
+}) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <TextInput
+      value={value} onChangeText={onChange} placeholder={placeholder}
+      placeholderTextColor="#2a2a2e" secureTextEntry={secureTextEntry}
+      keyboardType={keyboardType} autoComplete={autoComplete}
+      autoCapitalize={autoCapitalize ?? 'none'}
+      onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+      style={{
+        backgroundColor: SURFACE, borderWidth: 1, borderColor: focused ? ACCENT : BORDER,
+        borderRadius: 12, paddingHorizontal: 16,
+        paddingVertical: large ? 18 : 14, color: TEXT,
+        fontSize: large ? 28 : 15, textAlign: large ? 'center' : 'left',
+        letterSpacing: large ? 10 : 0, marginBottom: 12,
+      }}
+    />
+  );
+}
+
+function PrimaryBtn({ label, onPress, disabled, loading }: { label: string; onPress: () => void; disabled?: boolean; loading?: boolean }) {
+  return (
+    <Pressable onPress={onPress} disabled={disabled || loading}
+      style={({ pressed }) => ({
+        backgroundColor: disabled ? '#1a1a1a' : ACCENT,
+        borderRadius: 12, paddingVertical: 15, alignItems: 'center',
+        marginTop: 4, opacity: pressed ? 0.85 : 1,
+      })}>
+      {loading ? <ActivityIndicator color="white" /> : <Text style={{ color: disabled ? MUTED : 'white', fontWeight: '600', fontSize: 15 }}>{label}</Text>}
+    </Pressable>
+  );
+}
 
 export default function SignUpScreen() {
   const { signUp, setActive, isLoaded } = useSignUp();
@@ -18,7 +63,7 @@ export default function SignUpScreen() {
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   const [code, setCode] = useState('');
-  const [phase, setPhase] = useState<SignUpPhase>('register');
+  const [phase, setPhase] = useState<Phase>('register');
   const [missingFields, setMissingFields] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -26,325 +71,130 @@ export default function SignUpScreen() {
 
   useEffect(() => {
     if (resendCooldown <= 0) return;
-    const timer = setInterval(() => {
-      setResendCooldown((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+    const timer = setInterval(() => setResendCooldown((p) => (p <= 1 ? (clearInterval(timer), 0) : p - 1)), 1000);
     return () => clearInterval(timer);
   }, [resendCooldown]);
 
-  const onSignUpPress = async () => {
+  const wrap = async (fn: () => Promise<void>) => {
     if (!isLoaded || loading) return;
-    setLoading(true);
-    setError('');
-
-    try {
-      const result = await signUp.create({ emailAddress: email, password });
-
-      if (result.status === 'missing_requirements') {
-        const missing = signUp.missingFields ?? [];
-        // If the only missing requirement is email verification, proceed to verify
-        const nonVerificationFields = missing.filter(
-          (f) => f !== 'email_address' && !f.includes('verification'),
-        );
-        if (nonVerificationFields.length > 0) {
-          setMissingFields(nonVerificationFields);
-          setPhase('custom-fields');
-        } else {
-          await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
-          setPhase('verify');
-        }
-      } else if (result.status === 'complete') {
-        await setActive({ session: result.createdSessionId });
-        router.replace('/(tabs)');
-      } else {
-        // Attempt to proceed to verification
-        await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
-        setPhase('verify');
-      }
-    } catch (err: unknown) {
-      setError(getAuthErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
+    setLoading(true); setError('');
+    try { await fn(); } catch (e: unknown) { setError(getAuthErrorMessage(e)); } finally { setLoading(false); }
   };
 
-  const onSubmitCustomFields = async () => {
-    if (!isLoaded || loading) return;
-    setLoading(true);
-    setError('');
-
-    try {
-      await signUp.update({ username: username || undefined });
-      await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
-      setPhase('verify');
-    } catch (err: unknown) {
-      setError(getAuthErrorMessage(err));
-    } finally {
-      setLoading(false);
+  const onSignUp = () => wrap(async () => {
+    const result = await signUp!.create({ emailAddress: email, password });
+    if (result.status === 'missing_requirements') {
+      const missing = signUp!.missingFields ?? [];
+      const nonVerif = missing.filter((f) => f !== 'email_address' && !f.includes('verification'));
+      if (nonVerif.length > 0) { setMissingFields(nonVerif); setPhase('custom-fields'); }
+      else { await signUp!.prepareEmailAddressVerification({ strategy: 'email_code' }); setPhase('verify'); }
+    } else if (result.status === 'complete') {
+      await setActive({ session: result.createdSessionId }); router.replace('/');
+    } else {
+      await signUp!.prepareEmailAddressVerification({ strategy: 'email_code' }); setPhase('verify');
     }
-  };
+  });
 
-  const onVerifyPress = async () => {
-    if (!isLoaded || loading) return;
-    setLoading(true);
-    setError('');
+  const onCustomFields = () => wrap(async () => {
+    await signUp!.update({ username: username || undefined });
+    await signUp!.prepareEmailAddressVerification({ strategy: 'email_code' });
+    setPhase('verify');
+  });
 
-    try {
-      const attempt = await signUp.attemptEmailAddressVerification({ code });
+  const onVerify = () => wrap(async () => {
+    const attempt = await signUp!.attemptEmailAddressVerification({ code });
+    if (attempt.status === 'complete') {
+      await setActive({ session: attempt.createdSessionId });
+      isPasskeySupported() ? setPhase('passkey-prompt') : router.replace('/');
+    } else { setError(`Verification incomplete: ${attempt.status}`); }
+  });
 
-      if (attempt.status === 'complete') {
-        await setActive({ session: attempt.createdSessionId });
-        if (isPasskeySupported()) {
-          setPhase('passkey-prompt');
-        } else {
-          router.replace('/(tabs)');
-        }
-      } else {
-        setError(`Verification incomplete: ${attempt.status}`);
-      }
-    } catch (err: unknown) {
-      setError(getAuthErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const onResendCode = async () => {
+  const onResend = async () => {
     if (!isLoaded || resendCooldown > 0) return;
-    try {
-      await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
-      setResendCooldown(60);
-    } catch (err: unknown) {
-      setError(getAuthErrorMessage(err));
-    }
+    try { await signUp!.prepareEmailAddressVerification({ strategy: 'email_code' }); setResendCooldown(60); }
+    catch (e: unknown) { setError(getAuthErrorMessage(e)); }
   };
 
-  const onCreatePasskey = async () => {
-    try {
-      await user?.createPasskey();
-    } catch (err: unknown) {
-      // Passkey creation is optional -- don't block the flow
-      console.warn('Passkey creation failed:', err);
-    }
-    router.replace('/(tabs)');
+  const onPasskey = async () => {
+    try { await user?.createPasskey(); } catch { /* optional */ }
+    router.replace('/');
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-white dark:bg-neutral-950">
-      <View className="flex-1 justify-center px-6">
-        {phase === 'register' && (
-          <>
-            <Text className="mb-8 font-bold text-3xl text-neutral-900 dark:text-white">
-              Create account
-            </Text>
+    <SafeAreaView style={{ flex: 1, backgroundColor: BG }}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        <View style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 28 }}>
 
-            {error ? (
-              <View className="mb-4 rounded-lg bg-red-50 p-3 dark:bg-red-950/30">
-                <Text className="font-sans text-sm text-red-600 dark:text-red-400">
-                  {error}
+          {phase === 'register' && (
+            <>
+              <View style={{ marginBottom: 36 }}>
+                <Text style={{ color: TEXT, fontSize: 30, fontWeight: '700', marginBottom: 6 }}>Create account.</Text>
+                <Text style={{ color: MUTED, fontSize: 14 }}>Start earning by annotating AI data.</Text>
+              </View>
+              {error ? <View style={{ backgroundColor: ERROR_BG, borderWidth: 1, borderColor: '#3f1515', borderRadius: 10, padding: 12, marginBottom: 16 }}>
+                <Text style={{ color: ERROR_TEXT, fontSize: 13 }}>{error}</Text></View> : null}
+              <StyledInput value={email} onChange={setEmail} placeholder="Email address" keyboardType="email-address" autoComplete="email" />
+              <StyledInput value={password} onChange={setPassword} placeholder="Password" secureTextEntry autoComplete="new-password" />
+              <PrimaryBtn label="Create account" onPress={onSignUp} disabled={!email || !password || !isLoaded} loading={loading} />
+              <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: 32, gap: 4 }}>
+                <Text style={{ color: MUTED, fontSize: 13 }}>Already have an account?</Text>
+                <Link href="/(auth)/sign-in" asChild>
+                  <Pressable><Text style={{ color: ACCENT, fontSize: 13, fontWeight: '600' }}>Sign in</Text></Pressable>
+                </Link>
+              </View>
+            </>
+          )}
+
+          {phase === 'custom-fields' && (
+            <>
+              <Text style={{ color: TEXT, fontSize: 26, fontWeight: '700', marginBottom: 8 }}>One more thing</Text>
+              <Text style={{ color: MUTED, fontSize: 14, marginBottom: 28 }}>Fill in the required fields to continue.</Text>
+              {error ? <View style={{ backgroundColor: ERROR_BG, borderWidth: 1, borderColor: '#3f1515', borderRadius: 10, padding: 12, marginBottom: 16 }}>
+                <Text style={{ color: ERROR_TEXT, fontSize: 13 }}>{error}</Text></View> : null}
+              {missingFields.includes('username') && (
+                <StyledInput value={username} onChange={setUsername} placeholder="Username" autoCapitalize="none" />
+              )}
+              <PrimaryBtn label="Continue" onPress={onCustomFields} disabled={!isLoaded} loading={loading} />
+            </>
+          )}
+
+          {phase === 'verify' && (
+            <>
+              <Text style={{ color: TEXT, fontSize: 26, fontWeight: '700', marginBottom: 8 }}>Check your email</Text>
+              <Text style={{ color: MUTED, fontSize: 14, marginBottom: 28 }}>
+                We sent a 6-digit code to{' '}
+                <Text style={{ color: TEXT }}>{email}</Text>
+              </Text>
+              {error ? <View style={{ backgroundColor: ERROR_BG, borderWidth: 1, borderColor: '#3f1515', borderRadius: 10, padding: 12, marginBottom: 16 }}>
+                <Text style={{ color: ERROR_TEXT, fontSize: 13 }}>{error}</Text></View> : null}
+              <StyledInput value={code} onChange={setCode} placeholder="000000" keyboardType="number-pad" autoComplete="one-time-code" large />
+              <PrimaryBtn label="Verify" onPress={onVerify} disabled={code.length < 6} loading={loading} />
+              <Pressable onPress={onResend} disabled={resendCooldown > 0} style={{ marginTop: 18, alignItems: 'center' }}>
+                <Text style={{ color: resendCooldown > 0 ? MUTED : ACCENT, fontSize: 13 }}>
+                  {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend code'}
+                </Text>
+              </Pressable>
+            </>
+          )}
+
+          {phase === 'passkey-prompt' && (
+            <>
+              <View style={{ alignItems: 'center', marginBottom: 36 }}>
+                <Text style={{ fontSize: 48, marginBottom: 20 }}>🔑</Text>
+                <Text style={{ color: TEXT, fontSize: 26, fontWeight: '700', marginBottom: 10, textAlign: 'center' }}>Enable passkey</Text>
+                <Text style={{ color: MUTED, fontSize: 14, textAlign: 'center', lineHeight: 22 }}>
+                  Sign in faster next time using your fingerprint or Face ID — no password needed.
                 </Text>
               </View>
-            ) : null}
+              <PrimaryBtn label="Enable passkey" onPress={onPasskey} />
+              <Pressable onPress={() => router.replace('/')} style={{ marginTop: 18, alignItems: 'center' }}>
+                <Text style={{ color: MUTED, fontSize: 13 }}>Skip for now</Text>
+              </Pressable>
+            </>
+          )}
 
-            <TextInput
-              className="mb-4 rounded-lg border border-neutral-300 px-4 py-3 font-sans text-base text-neutral-900 dark:border-neutral-700 dark:text-white"
-              placeholder="Email"
-              placeholderTextColor="#9ca3af"
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              autoComplete="email"
-              accessibilityLabel="Email address"
-            />
-
-            <TextInput
-              className="mb-6 rounded-lg border border-neutral-300 px-4 py-3 font-sans text-base text-neutral-900 dark:border-neutral-700 dark:text-white"
-              placeholder="Password"
-              placeholderTextColor="#9ca3af"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              autoComplete="new-password"
-              accessibilityLabel="Password"
-            />
-
-            <Pressable
-              className="rounded-lg bg-blue-600 py-4 active:bg-blue-700 disabled:opacity-50"
-              onPress={onSignUpPress}
-              disabled={loading || !isLoaded}
-              accessibilityRole="button"
-              accessibilityLabel="Sign up"
-              accessibilityState={{ disabled: loading || !isLoaded }}
-            >
-              <Text className="text-center font-semibold text-base text-white">
-                {loading ? 'Creating account...' : 'Sign up'}
-              </Text>
-            </Pressable>
-
-            <View className="mt-6 flex-row justify-center">
-              <Text className="font-sans text-neutral-600 dark:text-neutral-400">
-                Already have an account?{' '}
-              </Text>
-              <Link href="/(auth)/sign-in" asChild>
-                <Pressable
-                  accessibilityRole="link"
-                  accessibilityLabel="Go to sign in"
-                >
-                  <Text className="font-semibold text-blue-600">Sign in</Text>
-                </Pressable>
-              </Link>
-            </View>
-          </>
-        )}
-
-        {phase === 'custom-fields' && (
-          <>
-            <Text className="mb-2 font-bold text-3xl text-neutral-900 dark:text-white">
-              Complete your profile
-            </Text>
-            <Text className="mb-8 font-sans text-neutral-600 dark:text-neutral-400">
-              Please fill in the required fields to continue.
-            </Text>
-
-            {error ? (
-              <View className="mb-4 rounded-lg bg-red-50 p-3 dark:bg-red-950/30">
-                <Text className="font-sans text-sm text-red-600 dark:text-red-400">
-                  {error}
-                </Text>
-              </View>
-            ) : null}
-
-            {missingFields.includes('username') && (
-              <TextInput
-                className="mb-4 rounded-lg border border-neutral-300 px-4 py-3 font-sans text-base text-neutral-900 dark:border-neutral-700 dark:text-white"
-                placeholder="Username"
-                placeholderTextColor="#9ca3af"
-                value={username}
-                onChangeText={setUsername}
-                autoCapitalize="none"
-                accessibilityLabel="Username"
-              />
-            )}
-
-            <Pressable
-              className="rounded-lg bg-blue-600 py-4 active:bg-blue-700 disabled:opacity-50"
-              onPress={onSubmitCustomFields}
-              disabled={loading || !isLoaded}
-              accessibilityRole="button"
-              accessibilityLabel="Continue"
-              accessibilityState={{ disabled: loading || !isLoaded }}
-            >
-              <Text className="text-center font-semibold text-base text-white">
-                {loading ? 'Saving...' : 'Continue'}
-              </Text>
-            </Pressable>
-          </>
-        )}
-
-        {phase === 'verify' && (
-          <>
-            <Text className="mb-2 font-bold text-3xl text-neutral-900 dark:text-white">
-              Verify email
-            </Text>
-            <Text className="mb-8 font-sans text-neutral-600 dark:text-neutral-400">
-              Enter the code sent to {email}
-            </Text>
-
-            {error ? (
-              <View className="mb-4 rounded-lg bg-red-50 p-3 dark:bg-red-950/30">
-                <Text className="font-sans text-sm text-red-600 dark:text-red-400">
-                  {error}
-                </Text>
-              </View>
-            ) : null}
-
-            <TextInput
-              className="mb-6 rounded-lg border border-neutral-300 px-4 py-3 text-center font-sans text-2xl tracking-widest text-neutral-900 dark:border-neutral-700 dark:text-white"
-              placeholder="000000"
-              placeholderTextColor="#9ca3af"
-              value={code}
-              onChangeText={setCode}
-              keyboardType="number-pad"
-              autoComplete="one-time-code"
-              accessibilityLabel="Verification code"
-            />
-
-            <Pressable
-              className="rounded-lg bg-blue-600 py-4 active:bg-blue-700 disabled:opacity-50"
-              onPress={onVerifyPress}
-              disabled={loading || !isLoaded}
-              accessibilityRole="button"
-              accessibilityLabel="Verify email"
-              accessibilityState={{ disabled: loading || !isLoaded }}
-            >
-              <Text className="text-center font-semibold text-base text-white">
-                {loading ? 'Verifying...' : 'Verify'}
-              </Text>
-            </Pressable>
-
-            <Pressable
-              className="mt-4"
-              onPress={onResendCode}
-              disabled={resendCooldown > 0}
-              accessibilityRole="button"
-              accessibilityLabel={
-                resendCooldown > 0
-                  ? `Resend code available in ${resendCooldown} seconds`
-                  : 'Resend verification code'
-              }
-              accessibilityState={{ disabled: resendCooldown > 0 }}
-            >
-              <Text className="text-center font-sans text-sm text-blue-600">
-                {resendCooldown > 0
-                  ? `Resend code in ${resendCooldown}s`
-                  : 'Resend code'}
-              </Text>
-            </Pressable>
-          </>
-        )}
-
-        {phase === 'passkey-prompt' && (
-          <>
-            <Text className="mb-2 font-bold text-3xl text-neutral-900 dark:text-white">
-              Create a passkey
-            </Text>
-            <Text className="mb-8 font-sans text-neutral-600 dark:text-neutral-400">
-              Sign in faster next time with your fingerprint or device lock.
-            </Text>
-
-            <Pressable
-              className="rounded-lg bg-blue-600 py-4 active:bg-blue-700 disabled:opacity-50"
-              onPress={onCreatePasskey}
-              disabled={loading}
-              accessibilityRole="button"
-              accessibilityLabel="Create passkey"
-              accessibilityState={{ disabled: loading }}
-            >
-              <Text className="text-center font-semibold text-base text-white">
-                Create passkey
-              </Text>
-            </Pressable>
-
-            <Pressable
-              className="mt-4"
-              onPress={() => router.replace('/(tabs)')}
-              accessibilityRole="button"
-              accessibilityLabel="Skip passkey creation"
-            >
-              <Text className="text-center font-sans text-sm text-neutral-500 dark:text-neutral-400">
-                Skip for now
-              </Text>
-            </Pressable>
-          </>
-        )}
-      </View>
+        </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

@@ -3,6 +3,8 @@ import React from 'react';
 import { Dimensions, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
+  Extrapolation,
+  interpolate,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
@@ -11,119 +13,141 @@ import Animated, {
 
 import { SwipeCardProps } from '@/types/sdui';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.3;
+const { width: W } = Dimensions.get('window');
+const THRESHOLD = W * 0.28;
+
+const BG = '#0a0a0a';
+const SURFACE = '#111111';
+const BORDER = '#1f1f1f';
+const TEXT = '#f5f5f5';
+const MUTED = '#555558';
 
 interface Props extends SwipeCardProps {
   onComplete: (value: string) => void;
 }
 
 export const SwipeCard: React.FC<Props> = ({ prompt, content_data, actions, onComplete }) => {
-  const translateX = useSharedValue(0);
-  const rotate = useSharedValue(0);
+  const tx = useSharedValue(0);
+  const ty = useSharedValue(0);
 
-  function triggerHaptic() {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-  }
+  function haptic() { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); }
 
-  const panGesture = Gesture.Pan()
-    .onUpdate((event) => {
-      translateX.value = event.translationX;
-      rotate.value = event.translationX / SCREEN_WIDTH;
+  const pan = Gesture.Pan()
+    .onUpdate((e) => {
+      tx.value = e.translationX;
+      ty.value = e.translationY * 0.12; // subtle tilt on Y
     })
-    .onEnd((event) => {
-      if (event.translationX > SWIPE_THRESHOLD) {
-        translateX.value = withSpring(SCREEN_WIDTH * 1.5);
-        rotate.value = withSpring(0.3);
-        runOnJS(triggerHaptic)();
+    .onEnd((e) => {
+      if (e.translationX > THRESHOLD) {
+        tx.value = withSpring(W * 1.6, { damping: 20 });
+        runOnJS(haptic)();
         runOnJS(onComplete)(actions.swipe_right.value);
-      } else if (event.translationX < -SWIPE_THRESHOLD) {
-        translateX.value = withSpring(-SCREEN_WIDTH * 1.5);
-        rotate.value = withSpring(-0.3);
-        runOnJS(triggerHaptic)();
+      } else if (e.translationX < -THRESHOLD) {
+        tx.value = withSpring(-W * 1.6, { damping: 20 });
+        runOnJS(haptic)();
         runOnJS(onComplete)(actions.swipe_left.value);
       } else {
-        translateX.value = withSpring(0);
-        rotate.value = withSpring(0);
+        tx.value = withSpring(0, { damping: 18 });
+        ty.value = withSpring(0, { damping: 18 });
       }
     });
 
-  const animatedStyle = useAnimatedStyle(() => ({
+  const cardStyle = useAnimatedStyle(() => ({
     transform: [
-      { translateX: translateX.value },
-      { rotate: `${rotate.value * 15}deg` },
+      { translateX: tx.value },
+      { translateY: ty.value },
+      { rotate: `${interpolate(tx.value, [-W * 0.5, 0, W * 0.5], [-12, 0, 12], Extrapolation.CLAMP)}deg` },
     ],
   }));
 
-  const leftLabelOpacity = useAnimatedStyle(() => ({
-    opacity: Math.min(1, Math.max(0, -translateX.value / SWIPE_THRESHOLD)),
+  const leftOpacity = useAnimatedStyle(() => ({
+    opacity: interpolate(tx.value, [-THRESHOLD, -24, 0], [1, 0.4, 0], Extrapolation.CLAMP),
   }));
 
-  const rightLabelOpacity = useAnimatedStyle(() => ({
-    opacity: Math.min(1, Math.max(0, translateX.value / SWIPE_THRESHOLD)),
+  const rightOpacity = useAnimatedStyle(() => ({
+    opacity: interpolate(tx.value, [0, 24, THRESHOLD], [0, 0.4, 1], Extrapolation.CLAMP),
   }));
 
   return (
-    <View className="flex-1 items-center justify-center px-5">
-      <Text className="mb-6 text-center font-semibold text-lg text-neutral-800 dark:text-neutral-100">
+    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}>
+      {/* Prompt */}
+      <Text style={{ color: MUTED, fontSize: 13, fontWeight: '500', letterSpacing: 0.3, textAlign: 'center', marginBottom: 20, paddingHorizontal: 16 }}>
         {prompt}
       </Text>
 
-      <GestureDetector gesture={panGesture}>
+      {/* Card */}
+      <GestureDetector gesture={pan}>
         <Animated.View
-          style={[animatedStyle]}
-          className="h-96 w-full max-w-sm rounded-3xl bg-white p-6 shadow-lg dark:bg-neutral-800"
+          style={[{
+            width: '100%', maxWidth: 360,
+            aspectRatio: 0.75,
+            backgroundColor: SURFACE,
+            borderRadius: 24,
+            borderWidth: 1,
+            borderColor: BORDER,
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 28,
+            shadowColor: '#000',
+            shadowOpacity: 0.5,
+            shadowRadius: 24,
+            shadowOffset: { width: 0, height: 8 },
+            elevation: 12,
+          }, cardStyle]}
         >
-          {/* Left label overlay */}
+          {/* Left label */}
           <Animated.View
-            style={leftLabelOpacity}
-            className="absolute left-5 top-5 rounded-lg border-4 px-3 py-1"
             pointerEvents="none"
+            style={[{
+              position: 'absolute', left: 20, top: 24,
+              borderWidth: 2, borderColor: actions.swipe_left.color,
+              borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5,
+              transform: [{ rotate: '-15deg' }],
+            }, leftOpacity]}
           >
-            <Text
-              className="font-bold text-xl"
-              style={{ color: actions.swipe_left.color, borderColor: actions.swipe_left.color }}
-            >
+            <Text style={{ color: actions.swipe_left.color, fontWeight: '800', fontSize: 14, letterSpacing: 1 }}>
               {actions.swipe_left.label.toUpperCase()}
             </Text>
           </Animated.View>
 
-          {/* Right label overlay */}
+          {/* Right label */}
           <Animated.View
-            style={rightLabelOpacity}
-            className="absolute right-5 top-5 rounded-lg border-4 px-3 py-1"
             pointerEvents="none"
+            style={[{
+              position: 'absolute', right: 20, top: 24,
+              borderWidth: 2, borderColor: actions.swipe_right.color,
+              borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5,
+              transform: [{ rotate: '15deg' }],
+            }, rightOpacity]}
           >
-            <Text
-              className="font-bold text-xl"
-              style={{ color: actions.swipe_right.color, borderColor: actions.swipe_right.color }}
-            >
+            <Text style={{ color: actions.swipe_right.color, fontWeight: '800', fontSize: 14, letterSpacing: 1 }}>
               {actions.swipe_right.label.toUpperCase()}
             </Text>
           </Animated.View>
 
-          <View className="flex-1 items-center justify-center">
-            <Text className="text-center font-medium text-2xl leading-relaxed text-neutral-900 dark:text-white">
-              {content_data}
-            </Text>
-          </View>
+          {/* Content */}
+          <Text style={{ color: TEXT, fontSize: 20, textAlign: 'center', lineHeight: 32, fontWeight: '500' }}>
+            {content_data}
+          </Text>
         </Animated.View>
       </GestureDetector>
 
-      {/* Swipe hints */}
-      <View className="mt-8 flex-row items-center justify-between w-full max-w-sm px-4">
-        <View className="items-center">
-          <Text className="text-2xl">←</Text>
-          <Text className="mt-1 font-medium text-sm" style={{ color: actions.swipe_left.color }}>
-            {actions.swipe_left.label}
-          </Text>
+      {/* Hint bar */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%', maxWidth: 360, marginTop: 28, paddingHorizontal: 4 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: `${actions.swipe_left.color}20`, borderWidth: 1, borderColor: `${actions.swipe_left.color}40`, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ color: actions.swipe_left.color, fontSize: 13 }}>←</Text>
+          </View>
+          <Text style={{ color: MUTED, fontSize: 12 }}>{actions.swipe_left.label}</Text>
         </View>
-        <Text className="text-neutral-400 text-sm">Swipe to answer</Text>
-        <View className="items-center">
-          <Text className="text-2xl">→</Text>
-          <Text className="mt-1 font-medium text-sm" style={{ color: actions.swipe_right.color }}>
-            {actions.swipe_right.label}
-          </Text>
+
+        <Text style={{ color: '#222', fontSize: 11 }}>swipe to answer</Text>
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text style={{ color: MUTED, fontSize: 12 }}>{actions.swipe_right.label}</Text>
+          <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: `${actions.swipe_right.color}20`, borderWidth: 1, borderColor: `${actions.swipe_right.color}40`, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ color: actions.swipe_right.color, fontSize: 13 }}>→</Text>
+          </View>
         </View>
       </View>
     </View>

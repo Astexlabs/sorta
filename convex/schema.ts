@@ -44,4 +44,33 @@ export default defineSchema({
   })
     .index('by_task', ['task_id'])
     .index('by_user', ['user_id']),
+
+  kyc_profiles: defineTable({
+    subject: v.string(), // Clerk subject ID
+    // Personal info
+    full_legal_name: v.string(),
+    date_of_birth: v.string(), // ISO YYYY-MM-DD
+    nationality: v.string(),
+    phone_number: v.string(),
+    // Address
+    address_line1: v.string(),
+    address_city: v.string(),
+    address_country: v.string(),
+    // Work eligibility
+    work_eligibility: v.string(), // 'citizen' | 'permanent_resident' | 'work_visa' | 'other'
+    tax_id: v.optional(v.string()), // NIN / TIN / SSN etc
+    // ID document
+    id_type: v.string(), // 'national_id' | 'passport' | 'drivers_license'
+    id_number: v.string(),
+    id_front_uri: v.string(), // mock local URI
+    id_back_uri: v.optional(v.string()),
+    // Verification status
+    verification_status: v.union(
+      v.literal('pending'),
+      v.literal('submitted'),
+      v.literal('approved'),
+      v.literal('rejected'),
+    ),
+    submitted_at: v.optional(v.number()), // timestamp
+  }).index('by_subject', ['subject']),
 });

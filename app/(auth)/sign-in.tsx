@@ -1,18 +1,78 @@
 import { useSignIn } from '@clerk/clerk-expo';
 import { Link, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Pressable, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { getAuthErrorMessage } from '@/lib/auth-errors';
 import { isPasskeySupported } from '@/lib/passkeys';
 
-type SignInPhase =
-  | 'credentials'
-  | 'first-factor'
-  | 'second-factor'
-  | 'forgot-password'
-  | 'reset-code';
+const BG = '#0a0a0a';
+const SURFACE = '#111111';
+const BORDER = '#1f1f1f';
+const ACCENT = '#6366f1';
+const TEXT = '#f5f5f5';
+const MUTED = '#555558';
+const ERROR_BG = '#1f0d0d';
+const ERROR_TEXT = '#f87171';
+
+type Phase = 'credentials' | 'first-factor' | 'second-factor' | 'forgot-password' | 'reset-code';
+
+function StyledInput({
+  value, onChange, placeholder, secureTextEntry, keyboardType, autoComplete, autoCapitalize,
+}: {
+  value: string; onChange: (v: string) => void; placeholder: string;
+  secureTextEntry?: boolean; keyboardType?: any; autoComplete?: any; autoCapitalize?: any;
+}) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <TextInput
+      value={value} onChangeText={onChange} placeholder={placeholder}
+      placeholderTextColor="#2a2a2e" secureTextEntry={secureTextEntry}
+      keyboardType={keyboardType} autoComplete={autoComplete}
+      autoCapitalize={autoCapitalize ?? 'none'}
+      onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+      style={{
+        backgroundColor: SURFACE, borderWidth: 1,
+        borderColor: focused ? ACCENT : BORDER,
+        borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
+        color: TEXT, fontSize: 15, marginBottom: 12,
+      }}
+    />
+  );
+}
+
+function PrimaryBtn({ label, onPress, disabled, loading }: { label: string; onPress: () => void; disabled?: boolean; loading?: boolean }) {
+  return (
+    <Pressable onPress={onPress} disabled={disabled || loading}
+      style={({ pressed }) => ({
+        backgroundColor: disabled ? '#1a1a1a' : ACCENT,
+        borderRadius: 12, paddingVertical: 15, alignItems: 'center',
+        marginTop: 4, opacity: pressed ? 0.85 : 1,
+      })}>
+      {loading
+        ? <ActivityIndicator color="white" />
+        : <Text style={{ color: disabled ? MUTED : 'white', fontWeight: '600', fontSize: 15 }}>{label}</Text>}
+    </Pressable>
+  );
+}
+
+function GhostBtn({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} style={{ marginTop: 18, alignItems: 'center' }}>
+      <Text style={{ color: MUTED, fontSize: 13 }}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function ErrorBanner({ msg }: { msg: string }) {
+  if (!msg) return null;
+  return (
+    <View style={{ backgroundColor: ERROR_BG, borderWidth: 1, borderColor: '#3f1515', borderRadius: 10, padding: 12, marginBottom: 16 }}>
+      <Text style={{ color: ERROR_TEXT, fontSize: 13 }}>{msg}</Text>
+    </View>
+  );
+}
 
 export default function SignInScreen() {
   const { signIn, setActive, isLoaded } = useSignIn();
@@ -23,469 +83,123 @@ export default function SignInScreen() {
   const [mfaCode, setMfaCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [phase, setPhase] = useState<SignInPhase>('credentials');
+  const [phase, setPhase] = useState<Phase>('credentials');
   const [error, setError] = useState('');
 
-  const handleSignInResult = async (attempt: {
-    status: string | null;
-    createdSessionId: string | null;
-    supportedFirstFactors?: Array<{ strategy: string }> | null;
-    supportedSecondFactors?: Array<{ strategy: string }> | null;
-  }) => {
+  const handleResult = async (attempt: any) => {
     switch (attempt.status) {
       case 'complete':
         await setActive({ session: attempt.createdSessionId });
-        router.replace('/(tabs)');
+        router.replace('/');
         break;
-      case 'needs_first_factor':
-        setMfaCode('');
-        setPhase('first-factor');
-        break;
-      case 'needs_second_factor':
-        setMfaCode('');
-        setPhase('second-factor');
-        break;
-      default:
-        setError(`Sign in incomplete: ${attempt.status}`);
+      case 'needs_first_factor': setMfaCode(''); setPhase('first-factor'); break;
+      case 'needs_second_factor': setMfaCode(''); setPhase('second-factor'); break;
+      default: setError(`Sign in incomplete: ${attempt.status}`);
     }
   };
 
-  const onSignInPress = async () => {
+  const wrap = async (fn: () => Promise<void>) => {
     if (!isLoaded || loading) return;
-    setLoading(true);
-    setError('');
-    try {
-      const attempt = await signIn.create({ identifier: email, password });
-      await handleSignInResult(attempt);
-    } catch (err: unknown) {
-      setError(getAuthErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
+    setLoading(true); setError('');
+    try { await fn(); } catch (e: unknown) { setError(getAuthErrorMessage(e)); } finally { setLoading(false); }
   };
 
-  const onFirstFactorPress = async () => {
-    if (!isLoaded || loading) return;
-    setLoading(true);
-    setError('');
-    try {
-      const attempt = await signIn.attemptFirstFactor({
-        strategy: 'email_code',
-        code: mfaCode,
-      });
-      await handleSignInResult(attempt);
-    } catch (err: unknown) {
-      setError(getAuthErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  };
+  const onSignIn = () => wrap(async () => handleResult(await signIn!.create({ identifier: email, password })));
+  const onFirstFactor = () => wrap(async () => handleResult(await signIn!.attemptFirstFactor({ strategy: 'email_code', code: mfaCode })));
+  const onSecondFactor = () => wrap(async () => handleResult(await signIn!.attemptSecondFactor({ strategy: 'totp', code: mfaCode })));
+  const onForgotPassword = () => wrap(async () => {
+    if (!email) { setError('Enter your email above first.'); return; }
+    await signIn!.create({ strategy: 'reset_password_email_code', identifier: email });
+    setPhase('reset-code');
+  });
+  const onResetPassword = () => wrap(async () => handleResult(
+    await signIn!.attemptFirstFactor({ strategy: 'reset_password_email_code', code: mfaCode, password: newPassword })
+  ));
+  const onPasskey = () => wrap(async () => handleResult(await signIn!.authenticateWithPasskey()));
 
-  const onSecondFactorPress = async () => {
-    if (!isLoaded || loading) return;
-    setLoading(true);
-    setError('');
-    try {
-      const attempt = await signIn.attemptSecondFactor({
-        strategy: 'totp',
-        code: mfaCode,
-      });
-      await handleSignInResult(attempt);
-    } catch (err: unknown) {
-      setError(getAuthErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const onForgotPassword = async () => {
-    if (!isLoaded || !email) {
-      setError('Please enter your email address first.');
-      return;
-    }
-    setLoading(true);
-    setError('');
-    try {
-      await signIn.create({
-        strategy: 'reset_password_email_code',
-        identifier: email,
-      });
-      setPhase('reset-code');
-    } catch (err: unknown) {
-      setError(getAuthErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const onResetPassword = async () => {
-    if (!isLoaded || loading) return;
-    setLoading(true);
-    setError('');
-    try {
-      const attempt = await signIn.attemptFirstFactor({
-        strategy: 'reset_password_email_code',
-        code: mfaCode,
-        password: newPassword,
-      });
-      await handleSignInResult(attempt);
-    } catch (err: unknown) {
-      setError(getAuthErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const onPasskeySignIn = async () => {
-    if (!isLoaded || loading) return;
-    setLoading(true);
-    setError('');
-    try {
-      const attempt = await signIn.authenticateWithPasskey();
-      await handleSignInResult(attempt);
-    } catch (err: unknown) {
-      setError(getAuthErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  };
+  const back = (to: Phase) => () => { setPhase(to); setError(''); setMfaCode(''); setNewPassword(''); };
 
   return (
-    <SafeAreaView className="flex-1 bg-white dark:bg-neutral-950">
-      <View className="flex-1 justify-center px-6">
-        {phase === 'credentials' && (
-          <>
-            <Text className="mb-8 font-bold text-3xl text-neutral-900 dark:text-white">
-              Welcome back
-            </Text>
+    <SafeAreaView style={{ flex: 1, backgroundColor: BG }}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        <View style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 28 }}>
 
-            {error ? (
-              <View className="mb-4 rounded-lg bg-red-50 p-3 dark:bg-red-950/30">
-                <Text className="font-sans text-sm text-red-600 dark:text-red-400">
-                  {error}
-                </Text>
+          {phase === 'credentials' && (
+            <>
+              <View style={{ marginBottom: 36 }}>
+                <Text style={{ color: TEXT, fontSize: 30, fontWeight: '700', marginBottom: 6 }}>Welcome back.</Text>
+                <Text style={{ color: MUTED, fontSize: 14 }}>Sign in to continue.</Text>
               </View>
-            ) : null}
-
-            <TextInput
-              className="mb-4 rounded-lg border border-neutral-300 px-4 py-3 font-sans text-base text-neutral-900 dark:border-neutral-700 dark:text-white"
-              placeholder="Email"
-              placeholderTextColor="#9ca3af"
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              autoComplete="email"
-              accessibilityLabel="Email address"
-            />
-
-            <TextInput
-              className="mb-4 rounded-lg border border-neutral-300 px-4 py-3 font-sans text-base text-neutral-900 dark:border-neutral-700 dark:text-white"
-              placeholder="Password"
-              placeholderTextColor="#9ca3af"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              autoComplete="current-password"
-              accessibilityLabel="Password"
-            />
-
-            <Pressable
-              onPress={onForgotPassword}
-              accessibilityRole="link"
-              accessibilityLabel="Forgot password"
-            >
-              <Text className="mb-6 font-sans text-sm text-blue-600">Forgot password?</Text>
-            </Pressable>
-
-            <Pressable
-              className="rounded-lg bg-blue-600 py-4 active:bg-blue-700 disabled:opacity-50"
-              onPress={onSignInPress}
-              disabled={loading || !isLoaded}
-              accessibilityRole="button"
-              accessibilityLabel="Sign in"
-              accessibilityState={{ disabled: loading || !isLoaded }}
-            >
-              <Text className="text-center font-semibold text-base text-white">
-                {loading ? 'Signing in...' : 'Sign in'}
-              </Text>
-            </Pressable>
-
-            {isPasskeySupported() && (
-              <Pressable
-                className="mt-3 rounded-lg border border-neutral-300 py-4 active:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:active:bg-neutral-900"
-                onPress={onPasskeySignIn}
-                disabled={loading}
-                accessibilityRole="button"
-                accessibilityLabel="Sign in with passkey"
-                accessibilityState={{ disabled: loading }}
-              >
-                <Text className="text-center font-semibold text-base text-neutral-900 dark:text-white">
-                  Sign in with passkey
-                </Text>
+              <ErrorBanner msg={error} />
+              <StyledInput value={email} onChange={setEmail} placeholder="Email address" keyboardType="email-address" autoComplete="email" />
+              <StyledInput value={password} onChange={setPassword} placeholder="Password" secureTextEntry autoComplete="current-password" />
+              <Pressable onPress={onForgotPassword} style={{ marginBottom: 20 }}>
+                <Text style={{ color: ACCENT, fontSize: 13 }}>Forgot password?</Text>
               </Pressable>
-            )}
-
-            <View className="mt-6 flex-row justify-center">
-              <Text className="font-sans text-neutral-600 dark:text-neutral-400">
-                Don&apos;t have an account?{' '}
-              </Text>
-              <Link href="/(auth)/sign-up" asChild>
-                <Pressable
-                  accessibilityRole="link"
-                  accessibilityLabel="Go to sign up"
-                >
-                  <Text className="font-semibold text-blue-600">Sign up</Text>
+              <PrimaryBtn label="Sign in" onPress={onSignIn} disabled={!email || !password || !isLoaded} loading={loading} />
+              {isPasskeySupported() && (
+                <Pressable onPress={onPasskey} disabled={loading} style={{
+                  borderWidth: 1, borderColor: BORDER, borderRadius: 12, paddingVertical: 14,
+                  alignItems: 'center', marginTop: 10,
+                }}>
+                  <Text style={{ color: TEXT, fontWeight: '500', fontSize: 14 }}>Sign in with passkey</Text>
                 </Pressable>
-              </Link>
-            </View>
-          </>
-        )}
-
-        {phase === 'first-factor' && (
-          <>
-            <Text className="mb-2 font-bold text-3xl text-neutral-900 dark:text-white">
-              Verify your identity
-            </Text>
-            <Text className="mb-8 font-sans text-neutral-600 dark:text-neutral-400">
-              Enter the verification code sent to your email.
-            </Text>
-
-            {error ? (
-              <View className="mb-4 rounded-lg bg-red-50 p-3 dark:bg-red-950/30">
-                <Text className="font-sans text-sm text-red-600 dark:text-red-400">
-                  {error}
-                </Text>
+              )}
+              <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: 32, gap: 4 }}>
+                <Text style={{ color: MUTED, fontSize: 13 }}>No account?</Text>
+                <Link href="/(auth)/sign-up" asChild>
+                  <Pressable><Text style={{ color: ACCENT, fontSize: 13, fontWeight: '600' }}>Sign up</Text></Pressable>
+                </Link>
               </View>
-            ) : null}
+            </>
+          )}
 
-            <TextInput
-              className="mb-6 rounded-lg border border-neutral-300 px-4 py-3 text-center font-sans text-2xl tracking-widest text-neutral-900 dark:border-neutral-700 dark:text-white"
-              placeholder="000000"
-              placeholderTextColor="#9ca3af"
-              value={mfaCode}
-              onChangeText={setMfaCode}
-              keyboardType="number-pad"
-              autoComplete="one-time-code"
-              accessibilityLabel="Verification code"
-            />
-
-            <Pressable
-              className="rounded-lg bg-blue-600 py-4 active:bg-blue-700 disabled:opacity-50"
-              onPress={onFirstFactorPress}
-              disabled={loading || !isLoaded}
-              accessibilityRole="button"
-              accessibilityLabel="Verify"
-              accessibilityState={{ disabled: loading || !isLoaded }}
-            >
-              <Text className="text-center font-semibold text-base text-white">
-                {loading ? 'Verifying...' : 'Verify'}
+          {(phase === 'first-factor' || phase === 'second-factor') && (
+            <>
+              <Text style={{ color: TEXT, fontSize: 26, fontWeight: '700', marginBottom: 8 }}>
+                {phase === 'second-factor' ? 'Two-factor auth' : 'Verify your email'}
               </Text>
-            </Pressable>
-
-            <Pressable
-              className="mt-4"
-              onPress={() => {
-                setPhase('credentials');
-                setError('');
-                setMfaCode('');
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Back to sign in"
-            >
-              <Text className="text-center font-sans text-sm text-blue-600">
-                Back to sign in
+              <Text style={{ color: MUTED, fontSize: 14, marginBottom: 28 }}>
+                {phase === 'second-factor' ? 'Enter the code from your authenticator app.' : 'Enter the code we sent to your email.'}
               </Text>
-            </Pressable>
-          </>
-        )}
+              <ErrorBanner msg={error} />
+              <TextInput value={mfaCode} onChangeText={setMfaCode}
+                placeholder="000000" placeholderTextColor="#2a2a2e"
+                keyboardType="number-pad" autoComplete="one-time-code"
+                style={{ backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 18, color: TEXT, fontSize: 28, textAlign: 'center', letterSpacing: 10, marginBottom: 20 }} />
+              <PrimaryBtn label="Verify" onPress={phase === 'second-factor' ? onSecondFactor : onFirstFactor}
+                disabled={mfaCode.length < 6} loading={loading} />
+              <GhostBtn label="← Back to sign in" onPress={back('credentials')} />
+            </>
+          )}
 
-        {phase === 'second-factor' && (
-          <>
-            <Text className="mb-2 font-bold text-3xl text-neutral-900 dark:text-white">
-              Two-factor authentication
-            </Text>
-            <Text className="mb-8 font-sans text-neutral-600 dark:text-neutral-400">
-              Enter the code from your authenticator app.
-            </Text>
+          {phase === 'forgot-password' && (
+            <>
+              <Text style={{ color: TEXT, fontSize: 26, fontWeight: '700', marginBottom: 8 }}>Reset password</Text>
+              <Text style={{ color: MUTED, fontSize: 14, marginBottom: 28 }}>Enter your email to receive a reset code.</Text>
+              <ErrorBanner msg={error} />
+              <StyledInput value={email} onChange={setEmail} placeholder="Email address" keyboardType="email-address" autoComplete="email" />
+              <PrimaryBtn label="Send reset code" onPress={onForgotPassword} disabled={!email} loading={loading} />
+              <GhostBtn label="← Back to sign in" onPress={back('credentials')} />
+            </>
+          )}
 
-            {error ? (
-              <View className="mb-4 rounded-lg bg-red-50 p-3 dark:bg-red-950/30">
-                <Text className="font-sans text-sm text-red-600 dark:text-red-400">
-                  {error}
-                </Text>
-              </View>
-            ) : null}
-
-            <TextInput
-              className="mb-6 rounded-lg border border-neutral-300 px-4 py-3 text-center font-sans text-2xl tracking-widest text-neutral-900 dark:border-neutral-700 dark:text-white"
-              placeholder="000000"
-              placeholderTextColor="#9ca3af"
-              value={mfaCode}
-              onChangeText={setMfaCode}
-              keyboardType="number-pad"
-              autoComplete="one-time-code"
-              accessibilityLabel="Authenticator code"
-            />
-
-            <Pressable
-              className="rounded-lg bg-blue-600 py-4 active:bg-blue-700 disabled:opacity-50"
-              onPress={onSecondFactorPress}
-              disabled={loading || !isLoaded}
-              accessibilityRole="button"
-              accessibilityLabel="Verify"
-              accessibilityState={{ disabled: loading || !isLoaded }}
-            >
-              <Text className="text-center font-semibold text-base text-white">
-                {loading ? 'Verifying...' : 'Verify'}
-              </Text>
-            </Pressable>
-
-            <Pressable
-              className="mt-4"
-              onPress={() => {
-                setPhase('credentials');
-                setError('');
-                setMfaCode('');
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Back to sign in"
-            >
-              <Text className="text-center font-sans text-sm text-blue-600">
-                Back to sign in
-              </Text>
-            </Pressable>
-          </>
-        )}
-
-        {phase === 'forgot-password' && (
-          <>
-            <Text className="mb-2 font-bold text-3xl text-neutral-900 dark:text-white">
-              Reset password
-            </Text>
-            <Text className="mb-8 font-sans text-neutral-600 dark:text-neutral-400">
-              Enter your email to receive a reset code.
-            </Text>
-
-            {error ? (
-              <View className="mb-4 rounded-lg bg-red-50 p-3 dark:bg-red-950/30">
-                <Text className="font-sans text-sm text-red-600 dark:text-red-400">
-                  {error}
-                </Text>
-              </View>
-            ) : null}
-
-            <TextInput
-              className="mb-6 rounded-lg border border-neutral-300 px-4 py-3 font-sans text-base text-neutral-900 dark:border-neutral-700 dark:text-white"
-              placeholder="Email"
-              placeholderTextColor="#9ca3af"
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              autoComplete="email"
-              accessibilityLabel="Email address"
-            />
-
-            <Pressable
-              className="rounded-lg bg-blue-600 py-4 active:bg-blue-700 disabled:opacity-50"
-              onPress={onForgotPassword}
-              disabled={loading || !isLoaded}
-              accessibilityRole="button"
-              accessibilityLabel="Send reset code"
-              accessibilityState={{ disabled: loading || !isLoaded }}
-            >
-              <Text className="text-center font-semibold text-base text-white">
-                {loading ? 'Sending...' : 'Send reset code'}
-              </Text>
-            </Pressable>
-
-            <Pressable
-              className="mt-4"
-              onPress={() => {
-                setPhase('credentials');
-                setError('');
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Back to sign in"
-            >
-              <Text className="text-center font-sans text-sm text-blue-600">
-                Back to sign in
-              </Text>
-            </Pressable>
-          </>
-        )}
-
-        {phase === 'reset-code' && (
-          <>
-            <Text className="mb-2 font-bold text-3xl text-neutral-900 dark:text-white">
-              Reset password
-            </Text>
-            <Text className="mb-8 font-sans text-neutral-600 dark:text-neutral-400">
-              Enter the code sent to {email} and your new password.
-            </Text>
-
-            {error ? (
-              <View className="mb-4 rounded-lg bg-red-50 p-3 dark:bg-red-950/30">
-                <Text className="font-sans text-sm text-red-600 dark:text-red-400">
-                  {error}
-                </Text>
-              </View>
-            ) : null}
-
-            <TextInput
-              className="mb-4 rounded-lg border border-neutral-300 px-4 py-3 text-center font-sans text-2xl tracking-widest text-neutral-900 dark:border-neutral-700 dark:text-white"
-              placeholder="000000"
-              placeholderTextColor="#9ca3af"
-              value={mfaCode}
-              onChangeText={setMfaCode}
-              keyboardType="number-pad"
-              autoComplete="one-time-code"
-              accessibilityLabel="Reset code"
-            />
-
-            <TextInput
-              className="mb-6 rounded-lg border border-neutral-300 px-4 py-3 font-sans text-base text-neutral-900 dark:border-neutral-700 dark:text-white"
-              placeholder="New password"
-              placeholderTextColor="#9ca3af"
-              value={newPassword}
-              onChangeText={setNewPassword}
-              secureTextEntry
-              autoComplete="new-password"
-              accessibilityLabel="New password"
-            />
-
-            <Pressable
-              className="rounded-lg bg-blue-600 py-4 active:bg-blue-700 disabled:opacity-50"
-              onPress={onResetPassword}
-              disabled={loading || !isLoaded}
-              accessibilityRole="button"
-              accessibilityLabel="Reset password"
-              accessibilityState={{ disabled: loading || !isLoaded }}
-            >
-              <Text className="text-center font-semibold text-base text-white">
-                {loading ? 'Resetting...' : 'Reset password'}
-              </Text>
-            </Pressable>
-
-            <Pressable
-              className="mt-4"
-              onPress={() => {
-                setPhase('credentials');
-                setError('');
-                setMfaCode('');
-                setNewPassword('');
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Back to sign in"
-            >
-              <Text className="text-center font-sans text-sm text-blue-600">
-                Back to sign in
-              </Text>
-            </Pressable>
-          </>
-        )}
-      </View>
+          {phase === 'reset-code' && (
+            <>
+              <Text style={{ color: TEXT, fontSize: 26, fontWeight: '700', marginBottom: 8 }}>New password</Text>
+              <Text style={{ color: MUTED, fontSize: 14, marginBottom: 28 }}>Enter the code sent to {email} and choose a new password.</Text>
+              <ErrorBanner msg={error} />
+              <TextInput value={mfaCode} onChangeText={setMfaCode}
+                placeholder="Reset code" placeholderTextColor="#2a2a2e"
+                keyboardType="number-pad" autoComplete="one-time-code"
+                style={{ backgroundColor: SURFACE, borderWidth: 1, borderColor: BORDER, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, color: TEXT, fontSize: 22, textAlign: 'center', letterSpacing: 8, marginBottom: 12 }} />
+              <StyledInput value={newPassword} onChange={setNewPassword} placeholder="New password" secureTextEntry autoComplete="new-password" />
+              <PrimaryBtn label="Reset password" onPress={onResetPassword} disabled={!mfaCode || !newPassword} loading={loading} />
+              <GhostBtn label="← Back to sign in" onPress={back('credentials')} />
+            </>
+          )}
+        </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
